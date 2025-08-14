@@ -18,6 +18,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class CvController {
 
     private static final Logger logger = LoggerFactory.getLogger(CvController.class);
+    private static final String ALLOWED_CONTENT_TYPE = "application/pdf";
+    private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
     private final CvProcessingService cvProcessingService;
     private final PdfGenerationService pdfGenerationService;
@@ -31,6 +33,17 @@ public class CvController {
     public ResponseEntity<?> convertCv(@RequestParam("file") MultipartFile file) {
 
         if (file.isEmpty()) {
+            // Dosya Tipi PDF mi?
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.equals(ALLOWED_CONTENT_TYPE)) {
+                logger.warn("VALIDATION_FAIL: Geçersiz dosya tipi. Beklenen: '{}', Gelen: '{}'", ALLOWED_CONTENT_TYPE, contentType);
+                return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Lütfen sadece PDF formatında bir dosya yükleyin.");
+            }
+            // Dosya Boyutu 5MB'ı Geçiyor mu?
+            if (file.getSize() > MAX_FILE_SIZE) {
+                logger.warn("VALIDATION_FAIL: Dosya boyutu limiti aşıldı. Limit: {}, Gelen: {}", MAX_FILE_SIZE, file.getSize());
+                return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body("Dosya boyutu 5 MB'dan büyük olamaz.");
+            }
             logger.warn("Boş bir dosya yükleme denemesi yapıldı.");
             return ResponseEntity.badRequest().body("Lütfen bir dosya seçin.");
         }
