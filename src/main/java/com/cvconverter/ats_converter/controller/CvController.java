@@ -35,7 +35,8 @@ public class CvController {
         }
 
         try {
-            logger.info("CV dönüştürme işlemi başlatıldı: {}", file.getOriginalFilename());
+            logger.info("API_CALL_START: /api/v1/cv/convert endpoint'ine istek geldi. Dosya Adı: '{}', Boyutu: {} bytes, Tipi: '{}'",
+                    file.getOriginalFilename(), file.getSize(), file.getContentType());
 
             // 1. ADIM: PDF dosyasından metni çıkar.
             String extractedText = cvProcessingService.extractTextFromPdf(file);
@@ -60,7 +61,8 @@ public class CvController {
 
         } catch (RuntimeException e) {
             // Servis katmanlarından gelebilecek her türlü hatayı burada yakalıyoruz.
-            logger.error("CV dönüştürme sırasında bir hata oluştu: ", e);
+            logger.error("API_CALL_FAIL: '{}' dosyası işlenirken bir hata oluştu. Hata Tipi: {}",
+                    file.getOriginalFilename(), e.getClass().getName(), e);
 
             // Kullanıcıya anlamlı ve güvenli bir hata mesajı döndürüyoruz.
             // e.getMessage() diyerek serviste fırlattığımız mesajı da kullanıcıya iletiyoruz.
