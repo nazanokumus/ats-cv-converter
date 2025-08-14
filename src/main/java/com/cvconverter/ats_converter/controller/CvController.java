@@ -14,7 +14,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/cv")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3002"}) // Frontend'den gelen isteklere izin ver
 public class CvController {
 
     private static final Logger logger = LoggerFactory.getLogger(CvController.class);

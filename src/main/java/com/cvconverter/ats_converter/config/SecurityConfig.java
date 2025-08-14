@@ -1,34 +1,49 @@
-package com.cvconverter.ats_converter.config; // Kendi paket adınla değiştir!
+package com.cvconverter.ats_converter.config;
 
+import org.springframework.beans.factory.annotation.Value; // <-- YENİ İMPORT
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
+    // YENİ: application.properties'den izin verilen origin'leri oku
+    @Value("${cors.allowed.origins}")
+    private String[] allowedOrigins;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // 1. ADIM: CSRF korumasını devre dışı bırak.
-                // Modern, stateless REST API'lar için bu yaygın bir pratiktir.
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
-
-                // 2. ADIM: İstekler için yetkilendirme kurallarını belirle.
                 .authorizeHttpRequests(auth -> auth
-                        // "/api/**" ile başlayan TÜM yollara...
-                        .requestMatchers("/api/**")
-                        // ... sorgusuz sualsiz İZİN VER.
-                        .permitAll()
-                        // ... geri kalan TÜM diğer isteklere ise...
-                        .anyRequest()
-                        // ... kimlik doğrulaması (authentication) zorunlu olsun.
-                        .authenticated()
+                        .requestMatchers("/api/**").permitAll()
+                        .anyRequest().authenticated()
                 );
-
         return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        // İZİN VERİLEN ORİJİNLERİ ARTIK "*" YERİNE, AKTİF PROFİLE GÖRE DOSYADAN OKU
+        configuration.setAllowedOrigins(Arrays.asList(allowedOrigins));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowCredentials(true); // Gerekliyse true yapabilirsin
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
     }
 }
