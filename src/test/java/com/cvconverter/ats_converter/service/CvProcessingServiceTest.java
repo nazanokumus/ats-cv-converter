@@ -10,7 +10,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
@@ -74,5 +76,32 @@ class CvProcessingServiceTest {
 
         // Bonus: RestTemplate.postForEntity metodunun TAM OLARAK 1 KERE çağrıldığından emin ol.
         verify(restTemplate, times(1)).postForEntity(anyString(), any(), eq(GeminiResponse.class));
+    }
+
+    @Test
+    void extractTextFromPdf_shouldReturnText_whenGivenValidPdf() throws Exception {
+        // --- ARRANGE (Hazırlık) ---
+        // Adım 1'de yarattığımız o sahte PDF dosyasını projenin kaynaklarından yüklüyoruz.
+        // Bu, Java'da testler için dosya okumanın en standart yoludur.
+        ClassPathResource resource = new ClassPathResource("test-files/test_cv.pdf");
+
+        // Yüklediğimiz o dosyayı, Spring'in sihirli `MockMultipartFile`'ı ile
+        // Controller'a gelen bir dosya yüklemesiymiş gibi taklit ediyoruz.
+        MockMultipartFile mockPdfFile = new MockMultipartFile(
+                "file", // Bu, Controller'daki @RequestParam("file") ile aynı olmalı.
+                resource.getFilename(),
+                "application/pdf",
+                resource.getInputStream()
+        );
+
+        // --- ACT (Eylem) ---
+        // Şimdi, o sahte dosyamızla, test etmek istediğimiz asıl metodu çağırıyoruz.
+        String extractedText = cvProcessingService.extractTextFromPdf(mockPdfFile);
+
+        // --- ASSERT (Doğrulama) ---
+        // Dönen sonucun doğru olup olmadığını kontrol ediyoruz.
+        assertNotNull(extractedText, "Çıkarılan metin null olmamalı.");
+        // .trim() kullanıyoruz, çünkü PDF'ten metin çıkarırken bazen başta/sonda boşluklar kalabilir.
+        assertEquals("merhaba", extractedText.trim(), "PDF'in içindeki metin doğru çıkarılmalı.");
     }
 }
