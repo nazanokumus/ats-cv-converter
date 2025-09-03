@@ -4,72 +4,78 @@ import './App.css';
 
 function App() {
   // === STATE DEĞİŞKENLERİ ===
-  // Kullanıcının seçtiği dosyayı tutar.
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  // Yükleme (API çağrısı) durumunu tutar. Butonları pasif yapmak için.
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  // Hata mesajlarını kullanıcıya göstermek için.
   const [error, setError] = useState<string>('');
-  // Kullanıcıya süreç hakkında bilgi vermek için durum mesajı.
   const [statusMessage, setStatusMessage] = useState<string>('');
 
-  // Dosya seçme input'u her değiştiğinde bu fonksiyon çalışır.
+  // Yeni özellikler için yeni state'ler
+  const [jobDescription, setJobDescription] = useState<string>('');
+  const [generateCoverLetter, setGenerateCoverLetter] = useState<boolean>(false);
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      setError(''); // Yeni dosya seçildiğinde eski hataları temizle.
-      setStatusMessage(''); // Yeni dosya seçildiğinde eski durum mesajını temizle.
+      setError('');
+      setStatusMessage('');
     }
   };
 
-  // "Dönüştür ve İndir" butonuna tıklandığında bu fonksiyon çalışır.
   const handleUpload = async () => {
-    // Önce kontrol: Dosya seçili mi?
+    // Önce kontroller
     if (!selectedFile) {
       setError('Lütfen önce bir PDF dosyası seçin!');
       return;
     }
+    if (generateCoverLetter && !jobDescription.trim()) {
+      setError('Ön yazı oluşturmak için lütfen iş ilanı metnini girin.');
+      return;
+    }
 
-    // Yükleme sürecini başlat
+    // Süreci başlat
     setIsLoading(true);
     setError('');
-    setStatusMessage('CV dönüştürme süreci başlatılıyor...');
+    setStatusMessage('Süreç başlatılıyor...');
 
     const formData = new FormData();
-    // Bu 'file' anahtarı, backend'deki @RequestParam("file") ile aynı olmalı.
     formData.append('file', selectedFile);
+    formData.append('jobDescription', jobDescription);
+    formData.append('generateCoverLetter', String(generateCoverLetter));
 
     try {
-      // Backend API'ına POST isteği gönderiyoruz.
-      const response = await axios.post('http://localhost:8080/api/v1/cv/convert', formData, {
-        // Gelen cevabın bir dosya (binary data) olacağını belirtiyoruz.
+      setStatusMessage('Dosyalarınız sunucuya yükleniyor...');
+      const response = await axios.post('http://localhost:8080/api/v1/cv/generate', formData, {
         responseType: 'blob',
+        // Kullanıcıya yükleme ilerlemesini göstermek için bir bonus (isteğe bağlı)
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setStatusMessage(`Yükleniyor... ${percentCompleted}%`);
+          }
+        }
       });
 
-      setStatusMessage('Yeni CV başarıyla oluşturuldu! İndiriliyor...');
+      setStatusMessage('Yapay zeka verileri işliyor... Bu işlem biraz sürebilir.');
 
-      // Gelen "blob" verisinden geçici bir URL oluşturuyoruz.
+      // Axios'un cevabı tamamlanana kadar beklediğini varsayıyoruz.
+      // Gerçek bir ilerleme çubuğu için WebSocket gibi daha karmaşık bir yapı gerekir.
+      // Bu haliyle, indirme başlayana kadar bu mesaj görünecek.
+
+      const downloadFilename = generateCoverLetter ? "CV_ve_On_Yazi.zip" : "ATS_Uyumlu_CV.pdf";
+
       const fileURL = window.URL.createObjectURL(new Blob([response.data]));
-
-      // Bu URL'i kullanarak dosyayı indirmek için görünmez bir link yaratıyoruz.
       const link = document.createElement('a');
       link.href = fileURL;
-      link.setAttribute('download', 'ATS_Uyumlu_CV.pdf'); // İndirilen dosyanın adı
+      link.setAttribute('download', downloadFilename);
       document.body.appendChild(link);
-
-      // Linke programatik olarak tıklayıp indirmeyi başlatıyoruz.
       link.click();
-
-      // Kullandıktan sonra o geçici linki ve URL'i temizliyoruz.
       link.remove();
       window.URL.revokeObjectURL(fileURL);
 
     } catch (err: any) {
-      console.error('Dosya dönüştürülürken bir hata oluştu!', err);
-      // Backend'den gelen özel hata mesajını göstermeye çalış.
+      console.error('İşlem sırasında bir hata oluştu!', err);
       if (err.response && err.response.data) {
-        // Blob veriyi metne dönüştürmek için bir FileReader kullan.
         const reader = new FileReader();
         reader.onload = () => {
           const errorMessage = reader.result as string;
@@ -77,11 +83,9 @@ function App() {
         };
         reader.readAsText(err.response.data);
       } else {
-        // Genel bir ağ hatası veya başka bir sorun.
-        setError('Bir hata oluştu. Sunucuya ulaşılamıyor veya PDF dosyası geçersiz.');
+        setError('Bir hata oluştu. Sunucuya ulaşılamıyor veya beklenmedik bir sorun yaşandı.');
       }
     } finally {
-      // İşlem başarılı da olsa, hatalı da olsa yükleme durumunu bitir.
       setIsLoading(false);
       setStatusMessage('');
     }
@@ -90,33 +94,56 @@ function App() {
   return (
     <div className="App">
       <div className="converter-container">
-        <h1>ATS Uyumlu CV Dönüştürücü</h1>
-        <p>PDF formatındaki CV'nizi yükleyerek Aday Takip Sistemleri (ATS) ile uyumlu, temiz bir versiyonunu oluşturun.</p>
+        <h1>ATS Kariyer Asistanı</h1>
+        <p>CV'nizi ATS uyumlu hale getirin ve başvurduğunuz işe özel bir ön yazı oluşturun.</p>
 
+        {/* Adım 1: CV Yükleme */}
         <label htmlFor="file-input" className="file-input-label">
-          PDF Dosyası Seç
+          1. PDF CV'nizi Seçin
         </label>
         <input
           id="file-input"
           type="file"
           accept=".pdf"
           onChange={handleFileChange}
+          disabled={isLoading}
         />
+        {selectedFile && <div className="file-name">Seçilen: {selectedFile.name}</div>}
 
-        {selectedFile && (
-          <div className="file-name">
-            Seçilen Dosya: {selectedFile.name}
+        {/* Adım 2: Ön Yazı (İsteğe Bağlı) */}
+        <div className="cover-letter-section">
+          <div className="checkbox-container">
+            <input
+              type="checkbox"
+              id="cover-letter-checkbox"
+              checked={generateCoverLetter}
+              onChange={(e) => setGenerateCoverLetter(e.target.checked)}
+              disabled={isLoading}
+            />
+            <label htmlFor="cover-letter-checkbox">2. İsteğe Bağlı: Ön Yazı Oluştur</label>
           </div>
-        )}
+          {generateCoverLetter && (
+            <textarea
+              className="job-description-textarea"
+              placeholder="Başvurduğunuz işin ilan metnini buraya yapıştırın..."
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              disabled={isLoading}
+            />
+          )}
+        </div>
 
-        {isLoading && <div className="loading-text">{statusMessage}</div>}
-        {error && <div className="error-text">{error}</div>}
+        {/* Sonuç ve Buton */}
+        <div className="action-section">
+            {isLoading && <div className="loading-text">{statusMessage}</div>}
+            {error && <div className="error-text">{error}</div>}
 
-        {selectedFile && (
-          <button onClick={handleUpload} className="upload-button" disabled={isLoading}>
-            {isLoading ? 'Dönüştürülüyor...' : 'Dönüştür ve İndir'}
-          </button>
-        )}
+            {selectedFile && (
+            <button onClick={handleUpload} className="upload-button" disabled={isLoading}>
+                {isLoading ? 'İşleniyor...' : '3. Oluştur ve İndir'}
+            </button>
+            )}
+        </div>
       </div>
     </div>
   );
