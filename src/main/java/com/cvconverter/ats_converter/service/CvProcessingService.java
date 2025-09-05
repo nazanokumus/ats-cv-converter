@@ -24,7 +24,7 @@ public class CvProcessingService {
 
     private static final Logger logger = LoggerFactory.getLogger(CvProcessingService.class);
 
-    // --- PROMPT'LARI, SAVAŞ EMİRLERİ GİBİ EN TEPEYE TAŞIDIK ---
+    // --- PROMPT'LARIMIZ AYNI, ONLAR STRATEJİMİZİN BİR PARÇASI ---
 
     private static final String CV_PARSING_PROMPT =
             "Aşağıdaki CV metnini analiz et ve bilgileri şu JSON formatında yapılandır: " +
@@ -39,24 +39,22 @@ public class CvProcessingService {
                     "Aşağıdaki JSON formatındaki CV verisini ve iş ilanı metnini kullanarak, bu işe başvuran aday için profesyonel, samimi ve etkileyici bir ön yazı oluştur. " +
                     "Ön yazı, adayın CV'sindeki en güçlü yetenekleri ve tecrübeleri, iş ilanındaki anahtar gereksinimlerle zekice eşleştirmelidir. " +
                     "Giriş, gelişme ve sonuç paragraflarından oluşan, akıcı bir metin oluştur. Sadece ve sadece ön yazının metnini döndür, başka hiçbir başlık veya açıklama ekleme.\n\n" +
-                    "CV Verisi: %s\n\n" + // %s, String.format ile doldurulacak yer tutucudur.
+                    "CV Verisi: %s\n\n" +
                     "İş İlanı Metni: %s";
 
-
+    // --- DEĞİŞİKLİK: ARTIK @VALUE("${gemini.api.key}") YOK! ---
+    // Anahtarı artık dışarıdan alacağımız için bu değişkene ihtiyacımız kalmadı.
+    // Bu, kodumuzu daha esnek ve stateless (durumsuz) hale getirir.
     private final RestTemplate restTemplate;
-
-    @Value("${gemini.api.key}")
-    private String geminiApiKey;
 
     public CvProcessingService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
 
     /**
-     * Verilen PDF dosyasından metin içeriğini çıkarır. (Bu metot aynı kaldı)
+     * PDF'ten metin çıkarma işi aynı kaldı. Buna dokunmuyoruz.
      */
-    public String extractTextFromPdf(MultipartFile file) {
-        // ... (Bu metodun içi, öncekiyle birebir aynı. Hiçbir değişiklik yok) ...
+    public String extractTextFromPdf(MultipartFile file) throws IOException {
         try (PDDocument document = Loader.loadPDF(file.getBytes())) {
             if (document.isEncrypted()) {
                 logger.warn("Şifreli bir PDF dosyası yüklendi: {}", file.getOriginalFilename());
@@ -71,31 +69,29 @@ public class CvProcessingService {
     }
 
     /**
-     * CV metnini Gemini AI'ye gönderir ve yapılandırılmış JSON verisini alır.
+     * DEĞİŞİKLİK: Bu metot artık KULLANICININ API ANAHTARINI da alıyor.
      */
-    public String getStructuredDataFromGemini(String cvText) {
+    public String getStructuredDataFromGemini(String cvText, String apiKey) {
         logger.info("CV verisini yapılandırmak için Gemini API'ye istek gönderiliyor...");
         String prompt = CV_PARSING_PROMPT + cvText;
-        return callGeminiApi(prompt);
+        return callGeminiApi(prompt, apiKey); // Yardımcı metoda apiKey'i de paslıyoruz.
     }
 
     /**
-     * YENİ METOT: CV verisi ve iş ilanından ön yazı üretir.
+     * DEĞİŞİKLİK: Bu metot da artık KULLANICININ API ANAHTARINI alıyor.
      */
-    public String generateCoverLetter(String cvDataJson, String jobDescription) {
+    public String generateCoverLetter(String cvDataJson, String jobDescription, String apiKey) {
         logger.info("Ön yazı oluşturmak için Gemini API'ye istek gönderiliyor...");
-        // String.format ile, o yer tutucuları (%s) gerçek verilerle dolduruyoruz.
         String prompt = String.format(COVER_LETTER_GENERATION_PROMPT, cvDataJson, jobDescription);
-        return callGeminiApi(prompt);
+        return callGeminiApi(prompt, apiKey); // Yardımcı metoda apiKey'i de paslıyoruz.
     }
 
     /**
-     * YENİ YARDIMCI METOT: Gemini API çağrısını merkezileştirdik.
-     * Bu, kod tekrarını önler ve bütün Gemini çağrılarını tek bir yerden yönetmemizi sağlar.
+     * YARDIMCI METOT GÜNCELLENDİ: Artık hangi API anahtarını kullanacağını parametre olarak alıyor.
      */
-    private String callGeminiApi(String prompt) {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + geminiApiKey;
-
+    private String callGeminiApi(String prompt, String apiKey) {
+        // URL'i artık dışarıdan gelen 'apiKey' ile dinamik olarak oluşturuyoruz.
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" + apiKey;
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -115,7 +111,7 @@ public class CvProcessingService {
             logger.info("Gemini API'den başarılı bir cevap alındı.");
             String resultText = response.getBody().getCandidates().get(0).getContent().getParts().get(0).getText();
 
-            // Cevabı temizleme mantığı aynı
+            // Cevap temizleme mantığı aynı
             if (resultText.startsWith("```json")) {
                 resultText = resultText.substring(7, resultText.length() - 3).trim();
             } else if (resultText.startsWith("```")) {
@@ -126,7 +122,8 @@ public class CvProcessingService {
 
         } catch (HttpClientErrorException e) {
             logger.error("Gemini API hatası. Status: {}, Body: {}", e.getStatusCode(), e.getResponseBodyAsString(), e);
-            throw new RuntimeException("Yapay zeka servisi ile iletişim kurulamadı. Lütfen API anahtarınızı ve model adını kontrol edin.");
+            // Hata mesajını daha spesifik hale getirdik.
+            throw new RuntimeException("Yapay zeka servisi ile iletişim kurulamadı. Lütfen API anahtarınızın geçerli olduğundan emin olun.");
         } catch (Exception e) {
             logger.error("Gemini API çağrısı sırasında beklenmedik hata.", e);
             throw new RuntimeException("Veri işlenirken beklenmedik bir hata oluştu.");

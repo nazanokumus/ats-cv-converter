@@ -1,7 +1,9 @@
 // src/components/CoverLetterSection.tsx
+
 import React from 'react';
 
 interface CoverLetterSectionProps {
+  isCompleted: boolean;
   generateCoverLetter: boolean;
   onCheckboxChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   jobDescription: string;
@@ -10,6 +12,7 @@ interface CoverLetterSectionProps {
 }
 
 export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
+  isCompleted,
   generateCoverLetter,
   onCheckboxChange,
   jobDescription,
@@ -18,7 +21,14 @@ export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
 }) => {
   return (
     <div className="cover-letter-section">
-      <div className="checkbox-container">
+      <div className="step-card-header">
+        <h2>
+          <span className="icon">{isCompleted ? '✅' : '📄'}</span>
+          2. İsteğe Bağlı: Ön Yazı Oluştur
+        </h2>
+      </div>
+
+      <label className="checkbox-container">
         <input
           type="checkbox"
           id="cover-letter-checkbox"
@@ -26,8 +36,13 @@ export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
           onChange={onCheckboxChange}
           disabled={isLoading}
         />
-        <label htmlFor="cover-letter-checkbox">2. İsteğe Bağlı: Ön Yazı Oluştur</label>
-      </div>
+        <span className="checkbox-label-text">Evet, ilana özel bir ön yazı oluşturulsun.</span>
+      </label>
+
+      <p className="checkbox-helper-text">
+        Bu seçeneği işaretlerseniz, yapay zeka CV'nizi ve iş ilanı metnini analiz ederek size özel bir ön yazı hazırlayacaktır.
+      </p>
+
       {generateCoverLetter && (
         <textarea
           className="job-description-textarea"
