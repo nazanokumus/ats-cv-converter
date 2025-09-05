@@ -2,7 +2,7 @@ package com.cvconverter.ats_converter.controller;
 
 import com.cvconverter.ats_converter.service.CvProcessingService;
 import com.cvconverter.ats_converter.service.PdfGenerationService;
-import com.cvconverter.ats_converter.service.ZipService; // <-- YENİ SERVİSİMİZ
+import com.cvconverter.ats_converter.service.ZipService; // ZİP SERVİSİMİZ GERİ GELDİ!
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -24,15 +24,14 @@ public class CvController {
 
     private static final Logger logger = LoggerFactory.getLogger(CvController.class);
 
-    // Sabitlerimizi en tepeye taşıdık, daha temiz.
     private static final String ALLOWED_CONTENT_TYPE = "application/pdf";
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
+    // TÜM SERVİSLERİMİZ YERLİ YERİNDE
     private final CvProcessingService cvProcessingService;
     private final PdfGenerationService pdfGenerationService;
-    private final ZipService zipService; // <-- YENİ ZİP SERVİSİNİ ENJEKTE ETTİK
+    private final ZipService zipService;
 
-    // Constructor'ı yeni servisi de alacak şekilde güncelledik.
     public CvController(CvProcessingService cvProcessingService,
                         PdfGenerationService pdfGenerationService,
                         ZipService zipService) {
@@ -41,72 +40,61 @@ public class CvController {
         this.zipService = zipService;
     }
 
-    // Eski `/convert` endpoint'ini daha genel bir `/generate` ile değiştirdik.
     @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> generateDocuments(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "jobDescription", required = false) String jobDescription,
+            @RequestParam("apiKey") String apiKey, // EN KRİTİK YENİ PARAMETRE
+            @RequestParam(value = "jobDescription", required = false, defaultValue = "") String jobDescription,
             @RequestParam(value = "generateCoverLetter", defaultValue = "false") boolean generateCoverLetter) {
 
-        // --- GİRİŞ DOĞRULAMA KISMI ---
-        if (file.isEmpty()) {
-            logger.warn("VALIDATION_FAIL: Boş bir dosya yükleme denemesi yapıldı.");
-            return ResponseEntity.badRequest().body("Lütfen bir dosya seçin.");
-        }
+        // --- GİRİŞ DOĞRULAMA KISMI (API KEY KONTROLÜ İLE GÜÇLENDİRİLDİ) ---
+        if (file.isEmpty()) { /* ... aynı ... */ return ResponseEntity.badRequest().body("Lütfen bir dosya seçin."); }
+        if (apiKey == null || apiKey.isBlank()) { /* ... YENİ ... */ return ResponseEntity.badRequest().body("API anahtarı zorunludur."); }
+        // ... Diğer dosya kontrolleri aynı ...
         String contentType = file.getContentType();
-        if (contentType == null || !contentType.equals(ALLOWED_CONTENT_TYPE)) {
-            logger.warn("VALIDATION_FAIL: Geçersiz dosya tipi. Gelen: '{}'", contentType);
-            return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Lütfen sadece PDF formatında dosya yükleyin.");
-        }
-        if (file.getSize() > MAX_FILE_SIZE) {
-            logger.warn("VALIDATION_FAIL: Dosya boyutu limiti aşıldı. Gelen: {}", file.getSize());
-            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body("Dosya boyutu 5 MB'dan büyük olamaz.");
-        }
-        if (generateCoverLetter && (jobDescription == null || jobDescription.isBlank())) {
-            logger.warn("VALIDATION_FAIL: Ön yazı istendi ama iş ilanı metni boş.");
-            return ResponseEntity.badRequest().body("Ön yazı oluşturmak için iş ilanı metni zorunludur.");
-        }
+        if (contentType == null || !contentType.equals(ALLOWED_CONTENT_TYPE)) { /* ... aynı ... */ return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Lütfen sadece PDF formatında dosya yükleyin."); }
+        if (file.getSize() > MAX_FILE_SIZE) { /* ... aynı ... */ return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body("Dosya boyutu 5 MB'dan büyük olamaz."); }
+        if (generateCoverLetter && jobDescription.isBlank()) { /* ... aynı ... */ return ResponseEntity.badRequest().body("Ön yazı oluşturmak için iş ilanı metni zorunludur."); }
 
-        String requestId = (String) org.slf4j.MDC.get("requestId");
-        logger.info("[{}] Doküman oluşturma işlemi başlatıldı. Ön Yazı İsteği: {}", requestId, generateCoverLetter);
+        logger.info("Doküman oluşturma işlemi başlatıldı. Ön Yazı İsteği: {}", generateCoverLetter);
 
         try {
-            // --- ÇEKİRDEK İŞLEMLER ---
+            // --- ÇEKİRDEK İŞLEMLER (ARTIK API KEY İLE ÇALIŞIYOR) ---
             String extractedCvText = cvProcessingService.extractTextFromPdf(file);
-            String structuredCvData = cvProcessingService.getStructuredDataFromGemini(extractedCvText);
+            // Gemini'ye isteği artık kullanıcının API anahtarıyla atıyoruz.
+            String structuredCvData = cvProcessingService.getStructuredDataFromGemini(extractedCvText, apiKey);
             byte[] atsCvPdfBytes = pdfGenerationService.createAtsFriendlyPdf(structuredCvData);
 
-            // --- KARAR MEKANİZMASI: Sadece CV mi, yoksa paket mi? ---
+            // --- KARAR MEKANİZMASI (OLDUĞU GİBİ KORUNDU) ---
             if (generateCoverLetter) {
-                logger.info("[{}] Ön yazı oluşturma işlemi başlatıldı.", requestId);
-                String coverLetterText = cvProcessingService.generateCoverLetter(structuredCvData, jobDescription);
+                logger.info("Ön yazı oluşturma işlemi başlatıldı.");
+                // Ön yazı oluşturma metoduna da API anahtarını yolluyoruz.
+                String coverLetterText = cvProcessingService.generateCoverLetter(structuredCvData, jobDescription, apiKey);
 
-                // İki dosyayı bir araya getirecek bir harita (map) oluşturuyoruz.
                 Map<String, byte[]> filesToZip = Map.of(
                         "ATS_Uyumlu_CV.pdf", atsCvPdfBytes,
-                        "On_Yazi.txt", coverLetterText.getBytes() // Ön yazıyı basit bir txt dosyası olarak ekliyoruz.
+                        "On_Yazi.txt", coverLetterText.getBytes()
                 );
 
                 byte[] zipBytes = zipService.createZipFile(filesToZip);
-                logger.info("[{}] CV ve Ön Yazı başarıyla ZİP dosyasına eklendi.", requestId);
+                logger.info("CV ve Ön Yazı başarıyla ZİP dosyasına eklendi.");
 
                 HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_OCTET_STREAM); // ZİP için doğru içerik tipi
+                headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
                 headers.setContentDispositionFormData("attachment", "CV_ve_On_Yazi.zip");
                 return new ResponseEntity<>(zipBytes, headers, HttpStatus.OK);
 
             } else {
-                logger.info("[{}] Sadece CV oluşturma işlemi tamamlandı.", requestId);
+                logger.info("Sadece CV oluşturma işlemi tamamlandı.");
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_PDF);
                 headers.setContentDispositionFormData("attachment", "ATS_Uyumlu_CV.pdf");
                 return new ResponseEntity<>(atsCvPdfBytes, headers, HttpStatus.OK);
             }
 
-        } catch (IOException | RuntimeException e) { // Birden fazla exception türünü yakalıyoruz
-            String requestIdForError = (String) org.slf4j.MDC.get("requestId");
-            logger.error("[{}] Doküman oluşturma sırasında bir hata oluştu: {}", requestIdForError, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
+        } catch (IOException | RuntimeException e) {
+            logger.error("Doküman oluşturma sırasında bir hata oluştu: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("CV işlenirken bir sunucu hatası oluştu: " + e.getMessage());
         }
     }
 }

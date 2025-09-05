@@ -1,25 +1,23 @@
-// src/components/ActionPanel.tsx - DÜZELTİLMİŞ SON HALİ
+// src/components/ActionPanel.tsx
 
 import React from 'react';
 
 interface ActionPanelProps {
   isLoading: boolean;
-  statusMessage: string;
-  error: string;
+  error: string; // statusMessage'ı kaldırdık
   isFileSelected: boolean;
   onUpload: () => void;
 }
 
 export const ActionPanel: React.FC<ActionPanelProps> = ({
   isLoading,
-  statusMessage,
   error,
   isFileSelected,
   onUpload,
 }) => {
   return (
     <div className="action-section">
-      {isLoading && <div className="loading-text">{statusMessage}</div>}
+      {/* Yükleme mesajı artık burada DEĞİL */}
       {error && <div className="error-text">{error}</div>}
 
       {isFileSelected && (
