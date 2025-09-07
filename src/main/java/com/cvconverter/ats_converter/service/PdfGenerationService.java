@@ -4,28 +4,42 @@ package com.cvconverter.ats_converter.service;
 import com.cvconverter.ats_converter.dto.CvDataDto;
 import com.cvconverter.ats_converter.dto.EducationDto;
 import com.cvconverter.ats_converter.dto.ExperienceDto;
+import com.cvconverter.ats_converter.dto.PersonalInfoDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lowagie.text.*;
 import com.lowagie.text.pdf.BaseFont;
 import com.lowagie.text.pdf.PdfWriter;
+import com.lowagie.text.pdf.draw.LineSeparator;
 import org.springframework.stereotype.Service;
 import java.awt.Color;
-import com.lowagie.text.Element; // Bu da gri çizgi için gerekli olabilir.
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class PdfGenerationService {
 
-    // Jackson'ın JSON'dan Java nesnesine dönüştürme işlemini yapacak olan sihirli nesnesi.
-    // Spring, bu nesneyi bizim için otomatik olarak oluşturup enjekte eder.
     private final ObjectMapper objectMapper;
 
     public PdfGenerationService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Gemini'den gelen metnin hem Java'daki null değerini hem de "null" kelimesini
+     * kontrol edip temizleyen GÜÇLENDİRİLMİŞ yardımcı metot.
+     * Bu metot, PDF'te istenmeyen "null" yazılarının görünmesini engeller.
+     * @param text Kontrol edilecek metin.
+     * @return Temizlenmiş ve kırpılmış metin veya boş string.
+     */
+    private String safeGet(String text) {
+        if (text == null || text.trim().equalsIgnoreCase("null")) {
+            return "";
+        }
+        return text.trim();
     }
 
     /**
@@ -35,13 +49,10 @@ public class PdfGenerationService {
      */
     public byte[] createAtsFriendlyPdf(String structuredJsonData) {
 
-        // 1. ADIM: JSON String'ini Java Nesnesine (CvDataDto) Dönüştürme
         CvDataDto cvData;
         try {
-            // objectMapper, JSON metnini okur ve CvDataDto sınıfımızın yapısına göre doldurur.
             cvData = objectMapper.readValue(structuredJsonData, CvDataDto.class);
         } catch (JsonProcessingException e) {
-            // Eğer Gemini'den gelen JSON bozuksa veya beklediğimiz formatta değilse hata fırlat.
             throw new RuntimeException("Gelen JSON verisi parse edilemedi.", e);
         }
 
@@ -52,61 +63,75 @@ public class PdfGenerationService {
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // 2. ADIM: PDF için Fontları Tanımlama (Türkçe Karakter Destekli)
-            // "Cp1254" karakter seti, ı, ğ, ş gibi Türkçe karakterleri destekler.
+            // Türkçe karakter destekli font tanımlamaları
             BaseFont bf = BaseFont.createFont(BaseFont.HELVETICA, "Cp1254", BaseFont.NOT_EMBEDDED);
             Font titleFont = new Font(bf, 18, Font.BOLD);
             Font headingFont = new Font(bf, 14, Font.BOLD);
             Font bodyFont = new Font(bf, 11);
             Font boldBodyFont = new Font(bf, 11, Font.BOLD);
 
-            // 3. ADIM: Parse Edilen Verileri Dinamik Olarak PDF'e Yazma
-
-            // --- KİŞİSEL BİLGİLER ---
+            // --- KİŞİSEL BİLGİLER (EN GÜVENLİ HALİ) ---
             if (cvData.getKisiselBilgiler() != null) {
-                document.add(new Paragraph(cvData.getKisiselBilgiler().getIsim(), titleFont));
-                String contactInfo = String.join(" | ",
-                        cvData.getKisiselBilgiler().getEmail(),
-                        cvData.getKisiselBilgiler().getTelefon());
-                document.add(new Paragraph(contactInfo, bodyFont));
-                document.add(Chunk.NEWLINE); // Boşluk ekler
+                PersonalInfoDto personalInfo = cvData.getKisiselBilgiler();
+                document.add(new Paragraph(safeGet(personalInfo.getIsim()), titleFont));
+
+                // İletişim bilgilerini sadece doluysa ve "null" değilse ekle
+                List<String> contactParts = new ArrayList<>();
+                String email = safeGet(personalInfo.getEmail());
+                String telefon = safeGet(personalInfo.getTelefon());
+
+                if (!email.isEmpty()) contactParts.add(email);
+                if (!telefon.isEmpty()) contactParts.add(telefon);
+
+                String contactInfo = String.join(" | ", contactParts);
+                if (!contactInfo.isEmpty()) {
+                    document.add(new Paragraph(contactInfo, bodyFont));
+                }
+                document.add(Chunk.NEWLINE);
             }
 
-            // --- İŞ DENEYİMİ ---
+            // --- İŞ DENEYİMİ (GÜVENLİ HALİ) ---
             if (cvData.getIsDeneyimleri() != null && !cvData.getIsDeneyimleri().isEmpty()) {
                 document.add(new Paragraph("İŞ DENEYİMİ", headingFont));
-                addGrayLine(document); // Ayırıcı çizgi
+                addGrayLine(document);
                 for (ExperienceDto exp : cvData.getIsDeneyimleri()) {
                     Paragraph expTitle = new Paragraph();
-                    expTitle.add(new Chunk(exp.getUnvan(), boldBodyFont));
-                    expTitle.add(new Chunk(" | " + exp.getSirket(), bodyFont));
+                    expTitle.add(new Chunk(safeGet(exp.getUnvan()), boldBodyFont));
+                    expTitle.add(new Chunk(" | " + safeGet(exp.getSirket()), bodyFont));
                     document.add(expTitle);
 
-                    document.add(new Paragraph(exp.getTarihler(), bodyFont));
-                    document.add(new Paragraph(exp.getAciklama(), bodyFont));
+                    document.add(new Paragraph(safeGet(exp.getTarihler()), bodyFont));
+                    document.add(new Paragraph(safeGet(exp.getAciklama()), bodyFont));
                     document.add(Chunk.NEWLINE);
                 }
             }
 
-            // --- EĞİTİM BİLGİLERİ ---
+            // --- EĞİTİM BİLGİLERİ (GÜVENLİ HALİ) ---
             if (cvData.getEgitimBilgileri() != null && !cvData.getEgitimBilgileri().isEmpty()) {
                 document.add(new Paragraph("EĞİTİM", headingFont));
                 addGrayLine(document);
                 for (EducationDto edu : cvData.getEgitimBilgileri()) {
-                    document.add(new Paragraph(edu.getOkul(), boldBodyFont));
-                    document.add(new Paragraph(edu.getBolum() + " - " + edu.getDerece(), bodyFont));
-                    document.add(new Paragraph(edu.getTarihler(), bodyFont));
+                    document.add(new Paragraph(safeGet(edu.getOkul()), boldBodyFont));
+                    document.add(new Paragraph(safeGet(edu.getBolum()) + " - " + safeGet(edu.getDerece()), bodyFont));
+                    document.add(new Paragraph(safeGet(edu.getTarihler()), bodyFont));
                     document.add(Chunk.NEWLINE);
                 }
             }
 
-            // --- YETENEKLER ---
+            // --- YETENEKLER (GÜVENLİ HALİ) ---
             if (cvData.getYetenekler() != null && !cvData.getYetenekler().isEmpty()) {
                 document.add(new Paragraph("YETENEKLER", headingFont));
                 addGrayLine(document);
-                // Yetenekleri virgülle ayırarak tek bir satırda yaz.
-                String skills = String.join(", ", cvData.getYetenekler());
-                document.add(new Paragraph(skills, bodyFont));
+
+                // Yetenek listesindeki "null" veya boş değerleri filtreleyerek birleştir
+                String skills = cvData.getYetenekler().stream()
+                        .map(this::safeGet) // Her bir yeteneği temizle
+                        .filter(skill -> !skill.isEmpty()) // Boş olanları listeden çıkar
+                        .collect(Collectors.joining(", ")); // Kalanları virgülle birleştir
+
+                if (!skills.isEmpty()) {
+                    document.add(new Paragraph(skills, bodyFont));
+                }
             }
 
             document.close();
@@ -119,7 +144,7 @@ public class PdfGenerationService {
 
     // PDF'e gri bir ayırıcı çizgi ekleyen yardımcı metot.
     private void addGrayLine(Document document) throws DocumentException {
-        Paragraph p = new Paragraph(new Chunk(new com.lowagie.text.pdf.draw.LineSeparator(0.5f, 100, Color.GRAY, Element.ALIGN_CENTER, 0)));
-        document.add(p);
+        LineSeparator separator = new LineSeparator(0.5f, 100, Color.GRAY, Element.ALIGN_CENTER, 0);
+        document.add(new Chunk(separator));
     }
 }
