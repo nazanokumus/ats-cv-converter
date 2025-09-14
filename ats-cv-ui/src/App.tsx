@@ -4,82 +4,116 @@ import React, { useState, useEffect } from 'react';
 import { generateCvPackage } from './services/apiService';
 import './App.css';
 
-import appLogo from './assets/images/app-logo.png';
+// Resimleriniz doğru yerden, standart React yöntemiyle import ediliyor.
+import appLogoBackground from './assets/images/karakter-arka-plan.png';
+import appLogoArm from './assets/images/karakter-kol.png';
+
 import { CoverLetterSection } from './components/CoverLetterSection';
 import { ApiKeyInput } from './components/ApiKeyInput';
 import { ActionPanel } from './components/ActionPanel';
 
 function App() {
+  // === STATE YÖNETİMİ ===
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [jobDescription, setJobDescription] = useState<string>('');
   const [generateCoverLetter, setGenerateCoverLetter] = useState<boolean>(false);
-  const [apiKey, setApiKey] = useState<string>('');
-  const [scrolledToStep, setScrolledToStep] = useState(0);
+  const [isStep2Confirmed, setIsStep2Confirmed] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
+  // API anahtarını tarayıcı hafızasından (localStorage) okuyarak başlatır.
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('geminiApiKey') || '');
+
+  // apiKey her değiştiğinde, yeni değeri tarayıcı hafızasına kaydeder.
+  useEffect(() => {
+    localStorage.setItem('geminiApiKey', apiKey);
+  }, [apiKey]);
+
+  // === ADIMLARIN TAMAMLANMA DURUMUNU HESAPLA ===
   const isStep1Complete = !!selectedFile;
-  const isStep2Complete = !generateCoverLetter || (generateCoverLetter && jobDescription.trim() !== '');
+  const isStep2Complete = isStep1Complete && (!generateCoverLetter || isStep2Confirmed);
   const isStep3Complete = apiKey.trim() !== '';
 
+  // === BEYİN: STİL GÜNCELLEME ===
   useEffect(() => {
     const step1 = document.getElementById('step-card-1');
     const step2 = document.getElementById('step-card-2');
     const step3 = document.getElementById('step-card-3');
 
     [step1, step2, step3].forEach(step => {
-      step?.classList.remove('step-highlight', 'step-completed');
+      step?.classList.remove('step-highlight');
     });
 
-    if (isStep1Complete) step1?.classList.add('step-completed');
-    if (isStep2Complete) step2?.classList.add('step-completed');
-    if (isStep3Complete) step3?.classList.add('step-completed');
+    step1?.classList.toggle('step-completed', isStep1Complete);
+    step2?.classList.toggle('step-completed', isStep2Complete);
+    step3?.classList.toggle('step-completed', isStep3Complete);
 
-    const scrollToStep = (stepElement: HTMLElement | null, stepNumber: number) => {
-      if (stepElement && scrolledToStep < stepNumber) {
-        setTimeout(() => {
-          stepElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
-        setScrolledToStep(stepNumber);
-      }
-    };
-
-    if (!isStep1Complete) return;
-
-    if (!isStep2Complete) {
+    if (!isStep1Complete) {
+      step1?.classList.add('step-highlight');
+    } else if (!isStep2Complete) {
       step2?.classList.add('step-highlight');
-      scrollToStep(step2, 2);
     } else if (!isStep3Complete) {
       step3?.classList.add('step-highlight');
-      scrollToStep(step3, 3);
     }
-  }, [isStep1Complete, isStep2Complete, isStep3Complete, scrolledToStep]);
+  }, [isStep1Complete, isStep2Complete, isStep3Complete]);
 
+  // === EVENT HANDLER'LAR ===
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // =======================================================
-    // === DÜZELTME BURADA YAPILDI: ?.; yerine ?.[0] ===
-    // =======================================================
     const file = event.target.files?.[0];
-
     if (file) {
       setSelectedFile(file);
       setError('');
       setStatusMessage('');
-      setScrolledToStep(1);
     }
     event.target.value = '';
   };
 
   const handleFileRemove = () => {
     setSelectedFile(null);
-    setScrolledToStep(0);
+    setIsStep2Confirmed(false);
+  };
+
+  const handleStep2Confirm = () => {
+    setIsStep2Confirmed(true);
+  };
+
+  const handleCoverLetterCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setGenerateCoverLetter(e.target.checked);
+    setIsStep2Confirmed(false);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (file && file.type === "application/pdf") {
+      setSelectedFile(file);
+      setError('');
+      setStatusMessage('');
+    } else {
+      setError('Lütfen sadece PDF formatında bir dosya sürükleyin.');
+    }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) { setError('Lütfen önce bir PDF dosyası seçin!'); return; }
     if (!apiKey.trim()) { setError('Lütfen Gemini API anahtarınızı girin.'); return; }
-    if (generateCoverLetter && !jobDescription.trim()) { setError('Ön yazı oluşturmak için lütfen iş ilanı metnini girin.'); return; }
+    if (generateCoverLetter && !isStep2Confirmed) {
+      setError('Lütfen ön yazı adımını "Onayla ve Devam Et" butonuyla tamamlayın.');
+      return;
+    }
 
     setIsLoading(true);
     setError('');
@@ -110,21 +144,31 @@ function App() {
       window.URL.revokeObjectURL(fileURL);
     } catch (err: any) {
       console.error('İşlem sırasında bir hata oluştu!', err);
-      // Hata mesajı gösterme mantığınızı buraya ekleyebilirsiniz.
     } finally {
       setIsLoading(false);
       setStatusMessage('');
     }
   };
 
+  // === RENDER BÖLÜMÜ ===
   return (
     <div className="main-layout">
       <div className="branding-column">
-        <img src={appLogo} alt="ATS Kariyer Asistanı Logosu" className="app-logo-dominant" />
+        <div className={`logo-container ${isLoading ? 'is-writing' : ''}`}>
+          <img
+            src={appLogoBackground}
+            alt="ATS Kariyer Asistanı"
+            className="logo-background"
+          />
+          <img
+            src={appLogoArm}
+            alt="Yazan kol"
+            className="writing-arm"
+          />
+        </div>
         <h1 className="main-title">ATS Kariyer Asistanı</h1>
         <p className="main-subtitle">CV'nizi geleceğe hazırlayın. Tek tıkla.</p>
       </div>
-
       <div className="form-column">
         <div className="container-wrapper">
           {isLoading && (
@@ -133,7 +177,6 @@ function App() {
               <div className="loading-text-overlay">{statusMessage}</div>
             </div>
           )}
-
           <div className="converter-container">
             <input
               type="file"
@@ -143,7 +186,6 @@ function App() {
               onChange={handleFileChange}
               disabled={isLoading}
             />
-
             <div id="step-card-1" className="step-card">
               <div className="step-card-header">
                 <h2>
@@ -152,9 +194,19 @@ function App() {
                 </h2>
               </div>
               {!selectedFile ? (
-                <label htmlFor="file-input" className="upload-prompt">
+                <label
+                  htmlFor="file-input"
+                  className={`upload-prompt ${isDragging ? 'dragging-over' : ''}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <div className="upload-prompt-text">
-                    <p>Başlamak için PDF dosyanızı buraya tıklayarak seçin.</p>
+                    <p>
+                      {isDragging
+                        ? "Dosyayı Buraya Bırakın"
+                        : "Başlamak için PDF dosyanızı buraya tıklayarak seçin veya sürükleyip bırakın."}
+                    </p>
                   </div>
                 </label>
               ) : (
@@ -167,18 +219,17 @@ function App() {
                 </div>
               )}
             </div>
-
             <div id="step-card-2" className="step-card">
               <CoverLetterSection
                 isCompleted={isStep2Complete}
                 generateCoverLetter={generateCoverLetter}
-                onCheckboxChange={(e) => setGenerateCoverLetter(e.target.checked)}
+                onCheckboxChange={handleCoverLetterCheckboxChange}
                 jobDescription={jobDescription}
                 onTextChange={(e) => setJobDescription(e.target.value)}
                 isLoading={isLoading}
+                onStepComplete={handleStep2Confirm}
               />
             </div>
-
             <div id="step-card-3" className="step-card">
               <ApiKeyInput
                 isCompleted={isStep3Complete}
@@ -186,14 +237,13 @@ function App() {
                 onApiKeyChange={(e) => setApiKey(e.target.value)}
                 isLoading={isLoading}
               />
+              <ActionPanel
+                isLoading={isLoading}
+                error={error}
+                isFileSelected={!!selectedFile}
+                onUpload={handleUpload}
+              />
             </div>
-
-            <ActionPanel
-              isLoading={isLoading}
-              error={error}
-              isFileSelected={!!selectedFile}
-              onUpload={handleUpload}
-            />
           </div>
         </div>
       </div>

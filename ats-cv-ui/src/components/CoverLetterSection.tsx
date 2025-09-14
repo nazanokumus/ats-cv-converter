@@ -9,6 +9,7 @@ interface CoverLetterSectionProps {
   jobDescription: string;
   onTextChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   isLoading: boolean;
+  onStepComplete: () => void;
 }
 
 export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
@@ -18,6 +19,7 @@ export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
   jobDescription,
   onTextChange,
   isLoading,
+  onStepComplete,
 }) => {
   return (
     <div className="cover-letter-section">
@@ -44,13 +46,32 @@ export const CoverLetterSection: React.FC<CoverLetterSectionProps> = ({
       </p>
 
       {generateCoverLetter && (
-        <textarea
-          className="job-description-textarea"
-          placeholder="Başvurduğunuz işin ilan metnini buraya yapıştırın..."
-          value={jobDescription}
-          onChange={onTextChange}
-          disabled={isLoading}
-        />
+        <>
+          <textarea
+            className="job-description-textarea"
+            placeholder="Başvurduğunuz işin ilan metnini buraya yapıştırın..."
+            value={jobDescription}
+            onChange={onTextChange}
+            disabled={isLoading}
+          />
+
+          {/*
+            Buton, sadece metin alanı doluyken VE adım henüz onaylanmamışken görünür.
+            Böylece butona basıldıktan sonra (ve isCompleted true olunca) kaybolur.
+          */}
+          {jobDescription.trim() !== '' && !isCompleted && (
+            <div className="step-confirm-button-container">
+              <button
+                type="button"
+                className="action-button primary"
+                onClick={onStepComplete}
+                disabled={isLoading}
+              >
+                Onayla ve Devam Et
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
