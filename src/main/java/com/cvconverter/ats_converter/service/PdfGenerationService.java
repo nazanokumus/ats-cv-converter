@@ -1,4 +1,3 @@
-// src/main/java/com/cvconverter/ats_converter/service/PdfGenerationService.java
 package com.cvconverter.ats_converter.service;
 
 import com.cvconverter.ats_converter.dto.CvDataDto;
@@ -28,110 +27,125 @@ public class PdfGenerationService {
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * Gemini'den gelen metnin hem Java'daki null değerini hem de "null" kelimesini
-     * kontrol edip temizleyen GÜÇLENDİRİLMİŞ yardımcı metot.
-     * Bu metot, PDF'te istenmeyen "null" yazılarının görünmesini engeller.
-     * @param text Kontrol edilecek metin.
-     * @return Temizlenmiş ve kırpılmış metin veya boş string.
-     */
     private String safeGet(String text) {
-        if (text == null || text.trim().equalsIgnoreCase("null")) {
+        if (text == null || text.trim().equalsIgnoreCase("null") || text.trim().isEmpty()) {
             return "";
         }
         return text.trim();
     }
 
-    /**
-     * Gemini'den gelen yapılandırılmış JSON verisini alır, parse eder ve ATS uyumlu bir PDF oluşturur.
-     * @param structuredJsonData Gemini tarafından üretilen JSON string'i.
-     * @return Oluşturulan PDF dosyasının byte dizisi.
-     */
     public byte[] createAtsFriendlyPdf(String structuredJsonData) {
-
         CvDataDto cvData;
         try {
             cvData = objectMapper.readValue(structuredJsonData, CvDataDto.class);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Gelen JSON verisi parse edilemedi.", e);
+            throw new RuntimeException("Yapay zekadan gelen JSON verisi anlaşılamadı.", e);
         }
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        Document document = new Document();
+        Document document = new Document(PageSize.A4, 40, 40, 40, 40); // Kenar boşlukları
+        boolean hasContentBeenAdded = false;
 
         try {
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // Türkçe karakter destekli font tanımlamaları
             BaseFont bf = BaseFont.createFont(BaseFont.HELVETICA, "Cp1254", BaseFont.NOT_EMBEDDED);
             Font titleFont = new Font(bf, 18, Font.BOLD);
-            Font headingFont = new Font(bf, 14, Font.BOLD);
-            Font bodyFont = new Font(bf, 11);
-            Font boldBodyFont = new Font(bf, 11, Font.BOLD);
+            Font headingFont = new Font(bf, 12, Font.BOLD);
+            Font bodyFont = new Font(bf, 10);
+            Font boldBodyFont = new Font(bf, 10, Font.BOLD);
 
-            // --- KİŞİSEL BİLGİLER (EN GÜVENLİ HALİ) ---
+            // --- KİŞİSEL BİLGİLER ---
             if (cvData.getKisiselBilgiler() != null) {
-                PersonalInfoDto personalInfo = cvData.getKisiselBilgiler();
-                document.add(new Paragraph(safeGet(personalInfo.getIsim()), titleFont));
+                PersonalInfoDto p = cvData.getKisiselBilgiler();
+                String isim = safeGet(p.getIsim());
+                if (!isim.isEmpty()) {
+                    Paragraph nameParagraph = new Paragraph(isim.toUpperCase(), titleFont);
+                    nameParagraph.setAlignment(Element.ALIGN_CENTER);
+                    document.add(nameParagraph);
+                    hasContentBeenAdded = true;
+                }
 
-                // İletişim bilgilerini sadece doluysa ve "null" değilse ekle
                 List<String> contactParts = new ArrayList<>();
-                String email = safeGet(personalInfo.getEmail());
-                String telefon = safeGet(personalInfo.getTelefon());
-
-                if (!email.isEmpty()) contactParts.add(email);
-                if (!telefon.isEmpty()) contactParts.add(telefon);
+                if (!safeGet(p.getTelefon()).isEmpty()) contactParts.add(safeGet(p.getTelefon()));
+                if (!safeGet(p.getEmail()).isEmpty()) contactParts.add(safeGet(p.getEmail()));
+                if (!safeGet(p.getAdres()).isEmpty()) contactParts.add(safeGet(p.getAdres()));
 
                 String contactInfo = String.join(" | ", contactParts);
                 if (!contactInfo.isEmpty()) {
-                    document.add(new Paragraph(contactInfo, bodyFont));
+                    Paragraph contactParagraph = new Paragraph(contactInfo, bodyFont);
+                    contactParagraph.setAlignment(Element.ALIGN_CENTER);
+                    document.add(contactParagraph);
+                    document.add(new Paragraph(" "));
                 }
-                document.add(Chunk.NEWLINE);
             }
 
-            // --- İŞ DENEYİMİ (GÜVENLİ HALİ) ---
+            // --- İŞ DENEYİMİ ---
             if (cvData.getIsDeneyimleri() != null && !cvData.getIsDeneyimleri().isEmpty()) {
                 document.add(new Paragraph("İŞ DENEYİMİ", headingFont));
                 addGrayLine(document);
                 for (ExperienceDto exp : cvData.getIsDeneyimleri()) {
-                    Paragraph expTitle = new Paragraph();
-                    expTitle.add(new Chunk(safeGet(exp.getUnvan()), boldBodyFont));
-                    expTitle.add(new Chunk(" | " + safeGet(exp.getSirket()), bodyFont));
-                    document.add(expTitle);
+                    if (safeGet(exp.getUnvan()).isEmpty() && safeGet(exp.getSirket()).isEmpty()) continue;
 
-                    document.add(new Paragraph(safeGet(exp.getTarihler()), bodyFont));
-                    document.add(new Paragraph(safeGet(exp.getAciklama()), bodyFont));
-                    document.add(Chunk.NEWLINE);
+                    Paragraph experienceHeader = new Paragraph();
+                    experienceHeader.add(new Chunk(safeGet(exp.getUnvan()), boldBodyFont));
+                    experienceHeader.add(new Chunk(" at ", bodyFont));
+                    experienceHeader.add(new Chunk(safeGet(exp.getSirket()), boldBodyFont));
+                    document.add(experienceHeader);
+
+                    Paragraph dates = new Paragraph(safeGet(exp.getTarihler()), bodyFont);
+                    document.add(dates);
+
+                    if(!safeGet(exp.getAciklama()).isEmpty()){
+                        Paragraph description = new Paragraph(safeGet(exp.getAciklama()), bodyFont);
+                        document.add(description);
+                    }
+
+                    document.add(new Paragraph(" "));
+                    hasContentBeenAdded = true;
                 }
             }
 
-            // --- EĞİTİM BİLGİLERİ (GÜVENLİ HALİ) ---
+            // --- EĞİTİM BİLGİLERİ ---
             if (cvData.getEgitimBilgileri() != null && !cvData.getEgitimBilgileri().isEmpty()) {
                 document.add(new Paragraph("EĞİTİM", headingFont));
                 addGrayLine(document);
                 for (EducationDto edu : cvData.getEgitimBilgileri()) {
-                    document.add(new Paragraph(safeGet(edu.getOkul()), boldBodyFont));
-                    document.add(new Paragraph(safeGet(edu.getBolum()) + " - " + safeGet(edu.getDerece()), bodyFont));
-                    document.add(new Paragraph(safeGet(edu.getTarihler()), bodyFont));
-                    document.add(Chunk.NEWLINE);
+                    if (safeGet(edu.getOkul()).isEmpty() && safeGet(edu.getBolum()).isEmpty()) continue;
+
+                    Paragraph eduHeader = new Paragraph();
+                    eduHeader.add(new Chunk(safeGet(edu.getBolum()), boldBodyFont));
+                    eduHeader.add(new Chunk(", " + safeGet(edu.getDerece()), bodyFont));
+                    document.add(eduHeader);
+
+                    Paragraph school = new Paragraph(safeGet(edu.getOkul()), bodyFont);
+                    document.add(school);
+
+                    Paragraph dates = new Paragraph(safeGet(edu.getTarihler()), bodyFont);
+                    document.add(dates);
+
+                    document.add(new Paragraph(" "));
+                    hasContentBeenAdded = true;
                 }
             }
 
-            // --- YETENEKLER (GÜVENLİ HALİ) ---
+            // --- YETENEKLER ---
             if (cvData.getYetenekler() != null && !cvData.getYetenekler().isEmpty()) {
-                document.add(new Paragraph("YETENEKLER", headingFont));
-                addGrayLine(document);
-
-                // Yetenek listesindeki "null" veya boş değerleri filtreleyerek birleştir
                 String skills = cvData.getYetenekler().stream()
-                        .map(this::safeGet) // Her bir yeteneği temizle
-                        .filter(skill -> !skill.isEmpty()) // Boş olanları listeden çıkar
-                        .collect(Collectors.joining(", ")); // Kalanları virgülle birleştir
-
+                        .map(this::safeGet)
+                        .filter(skill -> !skill.isEmpty())
+                        .collect(Collectors.joining(", "));
                 if (!skills.isEmpty()) {
+                    document.add(new Paragraph("YETENEKLER", headingFont));
+                    addGrayLine(document);
                     document.add(new Paragraph(skills, bodyFont));
+                    hasContentBeenAdded = true;
                 }
+            }
+
+            if (!hasContentBeenAdded) {
+                throw new RuntimeException("Yapay zeka CV'den herhangi bir anlamlı veri çıkaramadı. Lütfen farklı bir CV dosyası deneyin.");
             }
 
             document.close();
@@ -142,9 +156,10 @@ public class PdfGenerationService {
         return baos.toByteArray();
     }
 
-    // PDF'e gri bir ayırıcı çizgi ekleyen yardımcı metot.
     private void addGrayLine(Document document) throws DocumentException {
-        LineSeparator separator = new LineSeparator(0.5f, 100, Color.GRAY, Element.ALIGN_CENTER, 0);
+        document.add(new Paragraph(" ")); // Çizgi öncesi küçük bir boşluk
+        LineSeparator separator = new LineSeparator(0.5f, 100, Color.GRAY, Element.ALIGN_CENTER, -5);
         document.add(new Chunk(separator));
+        document.add(new Paragraph(" ")); // Çizgi sonrası küçük bir boşluk
     }
 }
