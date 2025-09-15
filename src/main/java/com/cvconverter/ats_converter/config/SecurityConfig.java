@@ -1,80 +1,72 @@
-package com.cvconverter.ats_converter.config; // Kendi paket adına göre düzelttiğinden emin ol!
+package com.cvconverter.ats_converter.config;
 
-import org.springframework.beans.factory.annotation.Value; // @Value anotasyonu için gerekli
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
+
+import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
-@EnableWebSecurity // Spring Security'nin bu sınıftaki ayarları kullanacağını belirtir.
+@EnableWebSecurity
 public class SecurityConfig {
 
-    // application.properties (veya .yml) dosyasındaki ayarları buraya enjekte ediyoruz.
-    // Bu sayede cors.allowed.origins değerini merkezi bir yerden yönetebiliriz.
-    @Value("${cors.allowed.origins}") // application.properties dosyasındaki "cors.allowed.origins" değerini buraya alacak.
+    @Value("${cors.allowed.origins}")
     private String[] allowedOrigins;
 
-    @Bean // Spring'e "Bu bir bean'dir, onu yönet" diyoruz.
+    @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // CORS AYARLARI: Frontend'den gelen isteklere izin veriyoruz.
+                // 1. CORS Ayarları: Frontend'den gelen isteklere izin ver.
+                // withDefaults() yerine kendi özel yapılandırmamızı kullanıyoruz.
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-                // CSRF KORUMASI: REST API'lar için genellikle devre dışı bırakılır, çünkü
-                // stateless (durumsuz) yapılar için extra bir karmaşıklık getirir.
-                .csrf(csrf -> csrf.disable())
+                // 2. CSRF Koruması: REST API'ler için genellikle devre dışı bırakılır.
+                .csrf(AbstractHttpConfigurer::disable)
 
-                // YETKİLENDİRME KURALLARI: Hangi URL'lere kimin erişebileceğini belirliyoruz.
+                // 3. Yetkilendirme Kuralları: Hangi yollara kimin erişebileceğini tanımla.
                 .authorizeHttpRequests(auth -> auth
-                        // "/api/**" ile başlayan TÜM yollara (bizim endpoint'lerimiz)
-                        // sorgusuz sualsiz erişime izin veriyoruz.
+                        // Bizim API endpoint'lerimizin bulunduğu "/api/**" yoluna gelen
+                        // TÜM isteklere kimlik doğrulaması olmadan izin ver.
                         .requestMatchers("/api/**").permitAll()
-                        // Geri kalan TÜM diğer isteklere ise...
-                        .anyRequest()
-                        // ...kimlik doğrulaması (authentication) yapmadan GİREMEZsin diyoruz.
-                        // (Bu projede henüz login/auth mekanizması olmadığı için bu satırın da bir önemi var.)
-                        .authenticated()
+
+                        // Yukarıdaki kural dışında kalan diğer tüm isteklere
+                        // (örneğin Spring'in kendi /error endpoint'i veya gelecekte eklenecek başka yollar)
+                        // yine de izin ver. Bu, "varsayılan olarak her şeyi engelle" mantığını kaldırır
+                        // ve asenkron hata yönetimindeki çakışmaları önler.
+                        .anyRequest().permitAll()
                 );
 
         return http.build();
     }
 
-    // CORS Kurallarını Tanımlayan Bean
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // İzin Verilen Kaynaklar (Origin):
-        // Development ortamı için frontend'in çalıştığı portları buraya ekliyoruz.
-        // Production ortamı için ise sadece kendi canlı uygulamanızın adresini eklemelisiniz.
-        // '*' her yerden izin vermek anlamına gelir ama bu PRODUCTION için KESİNLİKLE KULLANILMAZ.
-        // Yaptığımız değişiklik ile bu değer, application.properties'den dinamik olarak okunacak.
-        // Şimdilik, local'de çalışırken bütün portlara izin verdiğimiz varsayımıyla devam ediyoruz.
-        // TODO: Production için burayı sadece kendi domain'inizle değiştirin.
+        // application.properties'den gelen frontend adreslerine izin ver.
         configuration.setAllowedOrigins(Arrays.asList(allowedOrigins));
 
-        // İzin Verilen Metotlar: Hangi HTTP metotlarına izin verilecek? (GET, POST, etc.)
+        // Gerekli HTTP metotlarına izin ver.
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 
-        // İzin Verilen Header'lar: İstemden hangi header'ların gelmesine izin verilecek?
-        // "*" hepsine izin verir, ama güvenlik için sadece ihtiyacınız olanları belirtmek daha iyidir.
-        configuration.setAllowedHeaders(Arrays.asList("*"));
+        // Tüm başlıklara izin ver.
+        configuration.setAllowedHeaders(List.of("*"));
 
-        // Kimlik Bilgileri İzni: Tarayıcının isteklerle birlikte Cookie göndermesine izin verilir.
-        // Bu, genellikle token tabanlı olmayan session yönetimi için kullanılır.
-        // API'larınızda kimlik doğrulama (authentication) mekanizması varsa bu önemlidir.
+        // Kimlik bilgileriyle isteklere izin ver.
         configuration.setAllowCredentials(true);
 
-        // Bu ayarların nerede geçerli olacağını söyleyen kaynak nesnesi
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // Bütün yollar ("/**") için bu konfigurasyonu uygula
+        // Tanımlanan bu CORS kurallarını projedeki tüm yollar için geçerli kıl.
         source.registerCorsConfiguration("/**", configuration);
 
         return source;
